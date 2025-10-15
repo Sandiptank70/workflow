@@ -118,6 +118,11 @@ export const workflowService = {
     const response = await api.get(`/workflows/${id}/executions`);
     return response.data;
   },
+
+  getAllExecutions: async (): Promise<ExecutionLog[]> => {
+    const response = await api.get('/workflows/executions/all');
+    return response.data;
+  },
 };
 
 export default api;

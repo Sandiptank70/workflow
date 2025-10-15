@@ -3,7 +3,8 @@ import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { IntegrationTypesPage } from './pages/IntegrationTypesPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { WorkflowsPage } from './pages/WorkflowsPage';
-import { Workflow, Network, Boxes } from 'lucide-react';
+import { ExecutionsPage } from './pages/ExecutionsPage';
+import { Workflow, Network, Boxes, History } from 'lucide-react';
 
 function App() {
   return (
@@ -25,6 +26,9 @@ function App() {
                 <NavLink to="/workflows" icon={<Workflow className="h-4 w-4" />}>
                   Workflows
                 </NavLink>
+                <NavLink to="/executions" icon={<History className="h-4 w-4" />}>
+                  Executions
+                </NavLink>
               </div>
             </div>
           </div>
@@ -36,6 +40,7 @@ function App() {
             <Route path="/integration-types" element={<IntegrationTypesPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/workflows" element={<WorkflowsPage />} />
+            <Route path="/executions" element={<ExecutionsPage />} />
           </Routes>
         </main>
       </div>

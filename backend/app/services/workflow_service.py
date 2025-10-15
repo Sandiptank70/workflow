@@ -73,13 +73,34 @@ class WorkflowService:
         return True
     
     @staticmethod
-    def execute_workflow(db: Session, workflow_id: int) -> ExecutionLog:
-        """Execute a workflow and log the results"""
+    def execute_workflow(
+        db: Session, 
+        workflow_id: int,
+        runtime_params: Optional[Dict[str, Any]] = None,
+        trigger_source: str = "manual",
+        trigger_metadata: Optional[Dict[str, Any]] = None
+    ) -> ExecutionLog:
+        """
+        Execute a workflow and log detailed results
+        
+        Args:
+            db: Database session
+            workflow_id: ID of workflow to execute
+            runtime_params: Optional parameters to pass to all nodes
+            trigger_source: Source of the trigger (manual, api, webhook, scheduled)
+            trigger_metadata: Additional metadata about the trigger
+        """
         workflow = WorkflowService.get_workflow(db, workflow_id)
         if not workflow:
             raise ValueError("Workflow not found")
         
-        # Create execution log
+        # Create execution log with trigger info
+        execution_metadata = {
+            "trigger_source": trigger_source,
+            "trigger_metadata": trigger_metadata or {},
+            "runtime_params": runtime_params or {}
+        }
+        
         execution_log = ExecutionLog(
             workflow_id=workflow_id,
             status="running",
@@ -97,38 +118,75 @@ class WorkflowService:
             # Build execution order based on connections
             execution_order = WorkflowService._build_execution_order(nodes, connections)
             
-            # Execute nodes in order
-            execution_results = []
+            # Execute nodes in order with detailed tracking
+            node_results = []
             for node_id in execution_order:
                 node = next((n for n in nodes if n["id"] == node_id), None)
                 if not node:
                     continue
                 
-                node_result = WorkflowService._execute_node(db, node)
-                execution_results.append({
+                # Merge runtime params with node params
+                node_params = node.get("params", {})
+                if runtime_params:
+                    node_params = {**node_params, **runtime_params}
+                
+                # Execute node with enhanced tracking
+                node_start = datetime.utcnow()
+                node_result = WorkflowService._execute_node(db, node, node_params)
+                node_end = datetime.utcnow()
+                execution_time = (node_end - node_start).total_seconds()
+                
+                # Build detailed node result
+                detailed_result = {
                     "node_id": node_id,
-                    "result": node_result
-                })
+                    "task": node.get("task", "unknown"),
+                    "integration_id": node.get("integration_id"),
+                    "success": node_result.get("success", False),
+                    "message": node_result.get("message", ""),
+                    "data": node_result.get("data", {}),
+                    "execution_time_seconds": execution_time,
+                    "timestamp": node_start.isoformat()
+                }
+                
+                node_results.append(detailed_result)
                 
                 # Stop execution if node failed
                 if not node_result.get("success", False):
                     execution_log.status = "failed"
-                    execution_log.error_message = node_result.get("message", "Node execution failed")
+                    execution_log.error_message = f"Node {node_id} ({node.get('task')}) failed: {node_result.get('message', 'Unknown error')}"
                     break
             else:
                 # All nodes executed successfully
                 execution_log.status = "success"
             
+            # Save detailed execution data
+            execution_data = {
+                "node_results": node_results,
+                "metadata": execution_metadata,
+                "nodes_total": len(nodes),
+                "nodes_executed": len(node_results),
+                "nodes_successful": len([r for r in node_results if r["success"]])
+            }
+            
             execution_log.completed_at = datetime.utcnow()
-            execution_log.execution_data = json.dumps(execution_results)
+            execution_log.execution_data = json.dumps(execution_data)
             db.commit()
             db.refresh(execution_log)
             return execution_log
             
         except Exception as e:
             execution_log.status = "failed"
-            execution_log.error_message = str(e)
+            execution_log.error_message = f"Workflow execution error: {str(e)}"
             execution_log.completed_at = datetime.utcnow()
+            
+            # Save error details
+            execution_data = {
+                "node_results": node_results if 'node_results' in locals() else [],
+                "metadata": execution_metadata,
+                "error": str(e)
+            }
+            execution_log.execution_data = json.dumps(execution_data)
+            
             db.commit()
             db.refresh(execution_log)
             return execution_log
@@ -177,7 +235,7 @@ class WorkflowService:
         return execution_order
     
     @staticmethod
-    def _execute_node(db: Session, node: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_node(db: Session, node: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute a single workflow node"""
         try:
             node_type = node.get("type")
@@ -190,7 +248,8 @@ class WorkflowService:
             
             integration_id = node.get("integration_id")
             task_name = node.get("task")
-            params = node.get("params", {})
+            # Use provided params or fall back to node params
+            task_params = params if params is not None else node.get("params", {})
             
             if not all([integration_id, task_name]):
                 return {
@@ -217,7 +276,7 @@ class WorkflowService:
             
             if hasattr(module, task_name):
                 task_func = getattr(module, task_name)
-                result = task_func(credentials, params)
+                result = task_func(credentials, task_params)
                 return result
             else:
                 return {

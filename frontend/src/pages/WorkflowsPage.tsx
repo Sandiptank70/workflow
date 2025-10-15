@@ -15,6 +15,7 @@ import { Plus, Save, Play, Trash2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { Modal } from '@/components/Modal';
+import { ExecutionModal } from '@/components/ExecutionModal';
 import { workflowService, integrationService } from '@/services/api';
 import type { Workflow, Integration } from '@/types';
 import { formatDate } from '@/utils/helpers';
@@ -25,6 +26,8 @@ export const WorkflowsPage: React.FC = () => {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [isNodeModalOpen, setIsNodeModalOpen] = useState(false);
+  const [isExecutionModalOpen, setIsExecutionModalOpen] = useState(false);
+  const [currentExecution, setCurrentExecution] = useState<any>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -192,10 +195,16 @@ export const WorkflowsPage: React.FC = () => {
 
     try {
       const result = await workflowService.execute(workflowId);
+
+      // Show execution details modal
+      setCurrentExecution(result);
+      setIsExecutionModalOpen(true);
+
+      // Also show summary alert
       if (result.status === 'success') {
-        alert('Workflow executed successfully!');
+        alert(`✅ Workflow executed successfully!\n\nNodes: ${result.nodes_executed}/${result.nodes_total}\nTime: ${result.execution_time_seconds?.toFixed(2)}s`);
       } else {
-        alert(`Workflow execution ${result.status}. ${result.error_message || ''}`);
+        alert(`❌ Workflow execution ${result.status}\n\nError: ${result.error_message || 'Unknown error'}`);
       }
     } catch (error: any) {
       console.error('Error executing workflow:', error);
@@ -387,6 +396,13 @@ export const WorkflowsPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Execution Details Modal */}
+      <ExecutionModal
+        isOpen={isExecutionModalOpen}
+        onClose={() => setIsExecutionModalOpen(false)}
+        execution={currentExecution}
+      />
     </div>
   );
 };
