@@ -1,0 +1,392 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import ReactFlow, {
+  Node,
+  Edge,
+  addEdge,
+  Connection,
+  useNodesState,
+  useEdgesState,
+  Controls,
+  Background,
+  MiniMap,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import { Plus, Save, Play, Trash2 } from 'lucide-react';
+import { Button } from '@/components/Button';
+import { Input } from '@/components/Input';
+import { Modal } from '@/components/Modal';
+import { workflowService, integrationService } from '@/services/api';
+import type { Workflow, Integration } from '@/types';
+import { formatDate } from '@/utils/helpers';
+
+export const WorkflowsPage: React.FC = () => {
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [isNodeModalOpen, setIsNodeModalOpen] = useState(false);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  const [workflowName, setWorkflowName] = useState('');
+  const [workflowDescription, setWorkflowDescription] = useState('');
+
+  const [nodeFormData, setNodeFormData] = useState({
+    integration_id: '',
+    task: '',
+    params: {} as Record<string, any>,
+  });
+
+  const [paramsText, setParamsText] = useState('{}');
+
+  useEffect(() => {
+    loadWorkflows();
+    loadIntegrations();
+  }, []);
+
+  const loadWorkflows = async () => {
+    try {
+      const data = await workflowService.getAll();
+      setWorkflows(data);
+    } catch (error) {
+      console.error('Error loading workflows:', error);
+    }
+  };
+
+  const loadIntegrations = async () => {
+    try {
+      const data = await integrationService.getAll();
+      setIntegrations(data);
+    } catch (error) {
+      console.error('Error loading integrations:', error);
+    }
+  };
+
+  const onConnect = useCallback(
+    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
+    [setEdges]
+  );
+
+  const openBuilder = (workflow?: Workflow) => {
+    if (workflow) {
+      setSelectedWorkflow(workflow);
+      setWorkflowName(workflow.name);
+      setWorkflowDescription(workflow.description);
+
+      const loadedNodes: Node[] = workflow.workflow_data.nodes.map((node, index) => ({
+        id: node.id,
+        type: 'default',
+        data: {
+          label: `${node.task || 'Node'} (Int: ${node.integration_id})`,
+          ...node,
+        },
+        position: node.position || { x: 100 + index * 200, y: 100 },
+      }));
+
+      const loadedEdges: Edge[] = workflow.workflow_data.connections.map((conn) => ({
+        id: `e${conn.from}-${conn.to}`,
+        source: conn.from,
+        target: conn.to,
+      }));
+
+      setNodes(loadedNodes);
+      setEdges(loadedEdges);
+    } else {
+      setSelectedWorkflow(null);
+      setWorkflowName('');
+      setWorkflowDescription('');
+      setNodes([]);
+      setEdges([]);
+    }
+    setIsBuilderOpen(true);
+  };
+
+  const addNode = () => {
+    setIsNodeModalOpen(true);
+  };
+
+  const handleNodeSubmit = () => {
+    if (!nodeFormData.integration_id || !nodeFormData.task) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    // Parse params from text, default to {} if invalid
+    let params = {};
+    try {
+      if (paramsText.trim()) {
+        params = JSON.parse(paramsText);
+      }
+    } catch (error) {
+      alert('Invalid JSON format in parameters. Using empty object instead.');
+    }
+
+    const newNode: Node = {
+      id: `node-${Date.now()}`,
+      type: 'default',
+      data: {
+        label: `${nodeFormData.task} (Int: ${nodeFormData.integration_id})`,
+        integration_id: parseInt(nodeFormData.integration_id),
+        task: nodeFormData.task,
+        params: params,
+      },
+      position: { x: 250, y: 100 + nodes.length * 100 },
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+    setIsNodeModalOpen(false);
+    setNodeFormData({ integration_id: '', task: '', params: {} });
+    setParamsText('{}');
+  };
+
+  const saveWorkflow = async () => {
+    if (!workflowName.trim()) {
+      alert('Please enter a workflow name');
+      return;
+    }
+
+    const workflowData = {
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: 'integration',
+        integration_id: node.data.integration_id,
+        task: node.data.task,
+        params: node.data.params || {},
+        position: node.position,
+      })),
+      connections: edges.map((edge) => ({
+        from: edge.source,
+        to: edge.target,
+      })),
+    };
+
+    try {
+      if (selectedWorkflow) {
+        await workflowService.update(selectedWorkflow.id, {
+          name: workflowName,
+          description: workflowDescription,
+          workflow_data: workflowData,
+        });
+        alert('Workflow updated successfully!');
+      } else {
+        await workflowService.create({
+          name: workflowName,
+          description: workflowDescription,
+          workflow_data: workflowData,
+        });
+        alert('Workflow created successfully!');
+      }
+      setIsBuilderOpen(false);
+      loadWorkflows();
+    } catch (error: any) {
+      console.error('Error saving workflow:', error);
+      alert(error.response?.data?.detail || 'Failed to save workflow');
+    }
+  };
+
+  const executeWorkflow = async (workflowId: number) => {
+    if (!confirm('Are you sure you want to execute this workflow?')) {
+      return;
+    }
+
+    try {
+      const result = await workflowService.execute(workflowId);
+      if (result.status === 'success') {
+        alert('Workflow executed successfully!');
+      } else {
+        alert(`Workflow execution ${result.status}. ${result.error_message || ''}`);
+      }
+    } catch (error: any) {
+      console.error('Error executing workflow:', error);
+      alert(error.response?.data?.detail || 'Failed to execute workflow');
+    }
+  };
+
+  const deleteWorkflow = async (workflowId: number) => {
+    if (!confirm('Are you sure you want to delete this workflow?')) {
+      return;
+    }
+
+    try {
+      await workflowService.delete(workflowId);
+      alert('Workflow deleted successfully!');
+      loadWorkflows();
+    } catch (error) {
+      console.error('Error deleting workflow:', error);
+      alert('Failed to delete workflow');
+    }
+  };
+
+  return (
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Workflows</h1>
+        <Button onClick={() => openBuilder()}>
+          <Plus className="mr-2 h-4 w-4" />
+          Create Workflow
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {workflows.map((workflow) => (
+          <div
+            key={workflow.id}
+            className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+          >
+            <h3 className="text-lg font-semibold mb-2">{workflow.name}</h3>
+            <p className="text-sm text-gray-600 mb-3">{workflow.description}</p>
+            <div className="text-xs text-gray-500 mb-3">
+              Nodes: {workflow.workflow_data.nodes.length} | Connections:{' '}
+              {workflow.workflow_data.connections.length}
+            </div>
+            <div className="flex space-x-2">
+              <Button size="sm" onClick={() => openBuilder(workflow)}>
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => executeWorkflow(workflow.id)}
+              >
+                <Play className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => deleteWorkflow(workflow.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="text-xs text-gray-400 mt-2">
+              Updated: {formatDate(workflow.updated_at)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {workflows.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          No workflows found. Create one to get started!
+        </div>
+      )}
+
+      {isBuilderOpen && (
+        <div className="fixed inset-0 z-50 bg-white">
+          <div className="h-full flex flex-col">
+            <div className="bg-gray-100 p-4 border-b flex justify-between items-center">
+              <div className="flex-1 max-w-md">
+                <Input
+                  placeholder="Workflow Name"
+                  value={workflowName}
+                  onChange={(e) => setWorkflowName(e.target.value)}
+                  className="mb-2"
+                />
+                <Input
+                  placeholder="Description"
+                  value={workflowDescription}
+                  onChange={(e) => setWorkflowDescription(e.target.value)}
+                />
+              </div>
+              <div className="flex space-x-2">
+                <Button onClick={addNode}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Node
+                </Button>
+                <Button onClick={saveWorkflow}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save
+                </Button>
+                <Button variant="outline" onClick={() => setIsBuilderOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1">
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                fitView
+              >
+                <Background />
+                <Controls />
+                <MiniMap />
+              </ReactFlow>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        isOpen={isNodeModalOpen}
+        onClose={() => setIsNodeModalOpen(false)}
+        title="Add Node"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Integration <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={nodeFormData.integration_id}
+              onChange={(e) =>
+                setNodeFormData({ ...nodeFormData, integration_id: e.target.value })
+              }
+              className="w-full h-10 px-3 border border-gray-300 rounded-md"
+              required
+            >
+              <option value="">Select integration</option>
+              {integrations.map((integration) => (
+                <option key={integration.id} value={integration.id}>
+                  {integration.name} ({integration.integration_type_name})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Input
+            label="Task Name"
+            value={nodeFormData.task}
+            onChange={(e) => setNodeFormData({ ...nodeFormData, task: e.target.value })}
+            placeholder="e.g., create_issue, create_repo"
+            required
+          />
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Parameters (JSON) <span className="text-gray-500 text-xs">- Optional, leave { } for no params</span>
+            </label>
+            <textarea
+              value={paramsText}
+              onChange={(e) => setParamsText(e.target.value)}
+              className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+              placeholder='{"key": "value"} or leave as {}'
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              💡 Tip: Leave as <code>{'{}'}</code> if the task doesn't need parameters
+            </p>
+          </div>
+
+          <div className="flex justify-end space-x-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsNodeModalOpen(false);
+                setNodeFormData({ integration_id: '', task: '', params: {} });
+                setParamsText('{}');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleNodeSubmit}>Add Node</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+};
