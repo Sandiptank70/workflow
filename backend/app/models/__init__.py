@@ -10,6 +10,7 @@ class IntegrationType(Base):
     name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     parameters = Column(Text, nullable=False)  # JSON string of parameter definitions
+    tasks = Column(Text, nullable=True)  # JSON string of available tasks with metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

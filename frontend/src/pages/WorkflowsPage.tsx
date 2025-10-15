@@ -16,13 +16,14 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { Modal } from '@/components/Modal';
 import { ExecutionModal } from '@/components/ExecutionModal';
-import { workflowService, integrationService } from '@/services/api';
-import type { Workflow, Integration } from '@/types';
+import { workflowService, integrationService, integrationTypeService } from '@/services/api';
+import type { Workflow, Integration, IntegrationType } from '@/types';
 import { formatDate } from '@/utils/helpers';
 
 export const WorkflowsPage: React.FC = () => {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [integrationTypes, setIntegrationTypes] = useState<IntegrationType[]>([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [isNodeModalOpen, setIsNodeModalOpen] = useState(false);
@@ -42,10 +43,13 @@ export const WorkflowsPage: React.FC = () => {
   });
 
   const [paramsText, setParamsText] = useState('{}');
+  const [availableTasks, setAvailableTasks] = useState<any[]>([]);
+  const [selectedTask, setSelectedTask] = useState<any>(null);
 
   useEffect(() => {
     loadWorkflows();
     loadIntegrations();
+    loadIntegrationTypes();
   }, []);
 
   const loadWorkflows = async () => {
@@ -63,6 +67,55 @@ export const WorkflowsPage: React.FC = () => {
       setIntegrations(data);
     } catch (error) {
       console.error('Error loading integrations:', error);
+    }
+  };
+
+  const loadIntegrationTypes = async () => {
+    try {
+      const data = await integrationTypeService.getAll();
+      setIntegrationTypes(data);
+    } catch (error) {
+      console.error('Error loading integration types:', error);
+    }
+  };
+
+  // When integration is selected, load its available tasks
+  const handleIntegrationChange = (integrationId: string) => {
+    setNodeFormData({ ...nodeFormData, integration_id: integrationId, task: '' });
+    setSelectedTask(null);
+    setParamsText('{}');
+
+    if (integrationId) {
+      const integration = integrations.find(i => i.id === parseInt(integrationId));
+      if (integration) {
+        const integrationType = integrationTypes.find(t => t.id === integration.integration_type_id);
+        if (integrationType && integrationType.tasks && integrationType.tasks.length > 0) {
+          setAvailableTasks(integrationType.tasks);
+        } else {
+          setAvailableTasks([]);
+        }
+      }
+    } else {
+      setAvailableTasks([]);
+    }
+  };
+
+  // When task is selected, auto-populate parameter template
+  const handleTaskChange = (taskName: string) => {
+    setNodeFormData({ ...nodeFormData, task: taskName });
+
+    const task = availableTasks.find(t => t.name === taskName);
+    setSelectedTask(task);
+
+    if (task && task.parameters && task.parameters.length > 0) {
+      // Create parameter template
+      const paramTemplate: any = {};
+      task.parameters.forEach((param: any) => {
+        paramTemplate[param.name] = param.type === 'boolean' ? false : param.type === 'number' ? 0 : '';
+      });
+      setParamsText(JSON.stringify(paramTemplate, null, 2));
+    } else {
+      setParamsText('{}');
     }
   };
 
@@ -343,9 +396,7 @@ export const WorkflowsPage: React.FC = () => {
             </label>
             <select
               value={nodeFormData.integration_id}
-              onChange={(e) =>
-                setNodeFormData({ ...nodeFormData, integration_id: e.target.value })
-              }
+              onChange={(e) => handleIntegrationChange(e.target.value)}
               className="w-full h-10 px-3 border border-gray-300 rounded-md"
               required
             >
@@ -358,18 +409,60 @@ export const WorkflowsPage: React.FC = () => {
             </select>
           </div>
 
-          <Input
-            label="Task Name"
-            value={nodeFormData.task}
-            onChange={(e) => setNodeFormData({ ...nodeFormData, task: e.target.value })}
-            placeholder="e.g., create_issue, create_repo"
-            required
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Task <span className="text-red-500">*</span>
+            </label>
+            {availableTasks.length > 0 ? (
+              <>
+                <select
+                  value={nodeFormData.task}
+                  onChange={(e) => handleTaskChange(e.target.value)}
+                  className="w-full h-10 px-3 border border-gray-300 rounded-md"
+                  required
+                >
+                  <option value="">Select task</option>
+                  {availableTasks.map((task) => (
+                    <option key={task.name} value={task.name}>
+                      {task.display_name || task.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedTask && selectedTask.description && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    💡 {selectedTask.description}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <Input
+                  value={nodeFormData.task}
+                  onChange={(e) => setNodeFormData({ ...nodeFormData, task: e.target.value })}
+                  placeholder="e.g., send_notification, create_issue"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  ⚠️ This integration type has no defined tasks. Enter task name manually.
+                </p>
+              </>
+            )}
+          </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Parameters (JSON) <span className="text-gray-500 text-xs">- Optional, leave { } for no params</span>
             </label>
+            {selectedTask && selectedTask.parameters && selectedTask.parameters.length > 0 && (
+              <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                <div className="font-medium text-blue-900 mb-1">Required Parameters:</div>
+                {selectedTask.parameters.map((param: any) => (
+                  <div key={param.name} className="text-blue-800">
+                    • <strong>{param.name}</strong> ({param.type}){param.required && <span className="text-red-600">*</span>}: {param.description}
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               value={paramsText}
               onChange={(e) => setParamsText(e.target.value)}
@@ -388,6 +481,8 @@ export const WorkflowsPage: React.FC = () => {
                 setIsNodeModalOpen(false);
                 setNodeFormData({ integration_id: '', task: '', params: {} });
                 setParamsText('{}');
+                setAvailableTasks([]);
+                setSelectedTask(null);
               }}
             >
               Cancel

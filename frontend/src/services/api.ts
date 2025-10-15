@@ -32,9 +32,27 @@ export const integrationTypeService = {
     name: string;
     description: string;
     parameters: any[];
+    tasks?: any[];
   }): Promise<IntegrationType> => {
     const response = await api.post('/integration-types', data);
     return response.data;
+  },
+
+  update: async (
+    id: number,
+    data: {
+      name?: string;
+      description?: string;
+      parameters?: any[];
+      tasks?: any[];
+    }
+  ): Promise<IntegrationType> => {
+    const response = await api.put(`/integration-types/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/integration-types/${id}`);
   },
 };
 

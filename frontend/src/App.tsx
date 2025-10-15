@@ -4,7 +4,8 @@ import { IntegrationTypesPage } from './pages/IntegrationTypesPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { WorkflowsPage } from './pages/WorkflowsPage';
 import { ExecutionsPage } from './pages/ExecutionsPage';
-import { Workflow, Network, Boxes, History } from 'lucide-react';
+import { ImportExportPage } from './pages/ImportExportPage';
+import { Workflow, Network, Boxes, History, Download } from 'lucide-react';
 
 function App() {
   return (
@@ -29,6 +30,9 @@ function App() {
                 <NavLink to="/executions" icon={<History className="h-4 w-4" />}>
                   Executions
                 </NavLink>
+                <NavLink to="/import-export" icon={<Download className="h-4 w-4" />}>
+                  Import/Export
+                </NavLink>
               </div>
             </div>
           </div>
@@ -41,6 +45,7 @@ function App() {
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/workflows" element={<WorkflowsPage />} />
             <Route path="/executions" element={<ExecutionsPage />} />
+            <Route path="/import-export" element={<ImportExportPage />} />
           </Routes>
         </main>
       </div>

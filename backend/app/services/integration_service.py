@@ -13,7 +13,8 @@ class IntegrationService:
         db: Session,
         name: str,
         parameters: List[Dict[str, Any]],
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        tasks: Optional[List[Dict[str, Any]]] = None
     ) -> IntegrationType:
         """Create a new integration type"""
         # Check if type already exists
@@ -24,7 +25,8 @@ class IntegrationService:
         integration_type = IntegrationType(
             name=name,
             description=description,
-            parameters=json.dumps(parameters)
+            parameters=json.dumps(parameters),
+            tasks=json.dumps(tasks) if tasks else None
         )
         db.add(integration_type)
         db.commit()

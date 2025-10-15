@@ -3,6 +3,7 @@ export interface IntegrationType {
   name: string;
   description: string;
   parameters: Parameter[];
+  tasks?: Task[];
   created_at: string;
 }
 
@@ -11,6 +12,13 @@ export interface Parameter {
   type: string;
   required: boolean;
   description: string;
+}
+
+export interface Task {
+  name: string;
+  display_name: string;
+  description: string;
+  parameters: Parameter[];
 }
 
 export interface Integration {
