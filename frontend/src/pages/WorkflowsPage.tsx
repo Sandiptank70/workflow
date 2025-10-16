@@ -45,6 +45,7 @@ export const WorkflowsPage: React.FC = () => {
   const [paramsText, setParamsText] = useState('{}');
   const [availableTasks, setAvailableTasks] = useState<any[]>([]);
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [showJsonEditor, setShowJsonEditor] = useState(false);
 
   useEffect(() => {
     loadWorkflows();
@@ -102,21 +103,34 @@ export const WorkflowsPage: React.FC = () => {
 
   // When task is selected, auto-populate parameter template
   const handleTaskChange = (taskName: string) => {
-    setNodeFormData({ ...nodeFormData, task: taskName });
+    setNodeFormData({ ...nodeFormData, task: taskName, params: {} });
 
     const task = availableTasks.find(t => t.name === taskName);
     setSelectedTask(task);
 
     if (task && task.parameters && task.parameters.length > 0) {
-      // Create parameter template
+      // Create parameter template for both JSON and form
       const paramTemplate: any = {};
       task.parameters.forEach((param: any) => {
-        paramTemplate[param.name] = param.type === 'boolean' ? false : param.type === 'number' ? 0 : '';
+        if (param.type === 'boolean') {
+          paramTemplate[param.name] = false;
+        } else if (param.type === 'number') {
+          paramTemplate[param.name] = 0;
+        } else {
+          paramTemplate[param.name] = '';
+        }
       });
+
+      // Initialize both JSON text and form params
       setParamsText(JSON.stringify(paramTemplate, null, 2));
+      setNodeFormData(prev => ({ ...prev, params: paramTemplate }));
     } else {
       setParamsText('{}');
+      setNodeFormData(prev => ({ ...prev, params: {} }));
     }
+
+    // Default to form view if task has parameters
+    setShowJsonEditor(false);
   };
 
   const onConnect = useCallback(
@@ -168,21 +182,28 @@ export const WorkflowsPage: React.FC = () => {
       return;
     }
 
-    // Parse params from text, default to {} if invalid
+    // Use params from dynamic form, or parse from JSON if in JSON mode
     let params = {};
-    try {
-      if (paramsText.trim()) {
-        params = JSON.parse(paramsText);
+    if (showJsonEditor || !selectedTask || selectedTask.parameters.length === 0) {
+      // JSON mode or no parameters defined - parse from textarea
+      try {
+        if (paramsText.trim()) {
+          params = JSON.parse(paramsText);
+        }
+      } catch (error) {
+        alert('Invalid JSON format in parameters. Please fix or switch to form view.');
+        return;
       }
-    } catch (error) {
-      alert('Invalid JSON format in parameters. Using empty object instead.');
+    } else {
+      // Dynamic form mode - use params from nodeFormData
+      params = nodeFormData.params;
     }
 
     const newNode: Node = {
       id: `node-${Date.now()}`,
       type: 'default',
       data: {
-        label: `${nodeFormData.task} (Int: ${nodeFormData.integration_id})`,
+        label: `${selectedTask?.display_name || nodeFormData.task} (Int: ${nodeFormData.integration_id})`,
         integration_id: parseInt(nodeFormData.integration_id),
         task: nodeFormData.task,
         params: params,
@@ -194,6 +215,9 @@ export const WorkflowsPage: React.FC = () => {
     setIsNodeModalOpen(false);
     setNodeFormData({ integration_id: '', task: '', params: {} });
     setParamsText('{}');
+    setAvailableTasks([]);
+    setSelectedTask(null);
+    setShowJsonEditor(false);
   };
 
   const saveWorkflow = async () => {
@@ -449,30 +473,145 @@ export const WorkflowsPage: React.FC = () => {
             )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Parameters (JSON) <span className="text-gray-500 text-xs">- Optional, leave { } for no params</span>
-            </label>
-            {selectedTask && selectedTask.parameters && selectedTask.parameters.length > 0 && (
-              <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-                <div className="font-medium text-blue-900 mb-1">Required Parameters:</div>
-                {selectedTask.parameters.map((param: any) => (
-                  <div key={param.name} className="text-blue-800">
-                    • <strong>{param.name}</strong> ({param.type}){param.required && <span className="text-red-600">*</span>}: {param.description}
-                  </div>
-                ))}
+          {/* Dynamic Parameter Fields */}
+          {selectedTask && selectedTask.parameters && selectedTask.parameters.length > 0 ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700">
+                  Task Parameters
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowJsonEditor(!showJsonEditor)}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  {showJsonEditor ? '📝 Show Form' : '{ } Show JSON'}
+                </button>
               </div>
-            )}
-            <textarea
-              value={paramsText}
-              onChange={(e) => setParamsText(e.target.value)}
-              className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
-              placeholder='{"key": "value"} or leave as {}'
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              💡 Tip: Leave as <code>{'{}'}</code> if the task doesn't need parameters
-            </p>
-          </div>
+
+              {!showJsonEditor ? (
+                // Dynamic Form Fields
+                <div className="space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  {selectedTask.parameters.map((param: any) => (
+                    <div key={param.name}>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {param.description || param.name}
+                        {param.required && <span className="text-red-500 ml-1">*</span>}
+                        <span className="text-xs text-gray-500 ml-2">({param.type})</span>
+                      </label>
+
+                      {param.type === 'boolean' ? (
+                        <div className="flex items-center space-x-4">
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name={param.name}
+                              checked={nodeFormData.params[param.name] === true}
+                              onChange={() => setNodeFormData({
+                                ...nodeFormData,
+                                params: { ...nodeFormData.params, [param.name]: true }
+                              })}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">True</span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name={param.name}
+                              checked={nodeFormData.params[param.name] === false}
+                              onChange={() => setNodeFormData({
+                                ...nodeFormData,
+                                params: { ...nodeFormData.params, [param.name]: false }
+                              })}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">False</span>
+                          </label>
+                        </div>
+                      ) : param.type === 'password' ? (
+                        <input
+                          type="password"
+                          value={nodeFormData.params[param.name] || ''}
+                          onChange={(e) => setNodeFormData({
+                            ...nodeFormData,
+                            params: { ...nodeFormData.params, [param.name]: e.target.value }
+                          })}
+                          placeholder={`Enter ${param.name}`}
+                          required={param.required}
+                          className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      ) : param.type === 'number' ? (
+                        <input
+                          type="number"
+                          value={nodeFormData.params[param.name] || ''}
+                          onChange={(e) => setNodeFormData({
+                            ...nodeFormData,
+                            params: { ...nodeFormData.params, [param.name]: parseFloat(e.target.value) || 0 }
+                          })}
+                          placeholder={`Enter ${param.name}`}
+                          required={param.required}
+                          className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={nodeFormData.params[param.name] || ''}
+                          onChange={(e) => setNodeFormData({
+                            ...nodeFormData,
+                            params: { ...nodeFormData.params, [param.name]: e.target.value }
+                          })}
+                          placeholder={`Enter ${param.name}`}
+                          required={param.required}
+                          className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
+
+                      {param.description && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          {param.description}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // JSON Editor (fallback)
+                <div>
+                  <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                    <div className="font-medium text-blue-900 mb-1">Parameter Schema:</div>
+                    {selectedTask.parameters.map((param: any) => (
+                      <div key={param.name} className="text-blue-800">
+                        • <strong>{param.name}</strong> ({param.type}){param.required && <span className="text-red-600">*</span>}: {param.description}
+                      </div>
+                    ))}
+                  </div>
+                  <textarea
+                    value={paramsText}
+                    onChange={(e) => setParamsText(e.target.value)}
+                    className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+                    placeholder='{"key": "value"}'
+                  />
+                </div>
+              )}
+            </div>
+          ) : nodeFormData.integration_id && !selectedTask ? (
+            // No task selected or no parameters - show JSON editor
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Parameters (JSON) <span className="text-gray-500 text-xs">- Optional</span>
+              </label>
+              <textarea
+                value={paramsText}
+                onChange={(e) => setParamsText(e.target.value)}
+                className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+                placeholder='{"key": "value"} or leave as {}'
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                💡 Tip: Leave as <code>{'{}'}</code> if the task doesn't need parameters
+              </p>
+            </div>
+          ) : null}
 
           <div className="flex justify-end space-x-2">
             <Button
